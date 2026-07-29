@@ -1,11 +1,10 @@
-cat > app/dashboard/sidebar.tsx <<'EOF'
 "use client";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   LayoutDashboard,
   Users,
-  UserGraduate,
+  GraduationCap,
   ClipboardList,
   BarChart3,
   CreditCard,
@@ -18,7 +17,7 @@ export default function Sidebar() {
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/users", label: "Users Sheet", icon: Users },
-    { href: "/dashboard/students", label: "Siswa (CRUD)", icon: UserGraduate },
+    { href: "/dashboard/students", label: "Siswa (CRUD)", icon: GraduationCap },
     { href: "/dashboard/attendance", label: "Kehadiran", icon: ClipboardList },
     { href: "/dashboard/statistics", label: "Statistik Siswa", icon: BarChart3 },
     { href: "/dashboard/cards", label: "Cetak Kartu Siswa", icon: CreditCard },
@@ -67,4 +66,3 @@ export default function Sidebar() {
     </aside>
   );
 }
-EOF

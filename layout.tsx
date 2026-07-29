@@ -1,4 +1,3 @@
-cat > app/dashboard/layout.tsx <<'EOF'
 import Sidebar from "./sidebar";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -11,4 +10,3 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     </div>
   );
 }
-EOF

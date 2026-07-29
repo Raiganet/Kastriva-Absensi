@@ -96,7 +96,7 @@ export default function StatisticsPage() {
     setLoading(false);
   }
 
-  function exportCSV() {
+   function exportCSV() {
     if (!stats) return;
     const headers = ["Tanggal", "NIS", "Nama", "Kelas", "Status", "Kategori", "Jam"];
     const rows = stats.records.map((r: any) => [
@@ -109,7 +109,9 @@ export default function StatisticsPage() {
       r.Time_String,
     ]);
     
-    const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+    // PERBAIKAN: Tambahkan tipe data string[] dan string
+    const csv = [headers, ...rows].map((row: string[]) => row.map((cell: string) => `"${cell}"`).join(",")).join("\n");
+    
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

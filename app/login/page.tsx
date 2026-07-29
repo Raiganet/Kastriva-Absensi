@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -41,11 +41,14 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-        <h1 className="text-xl font-bold mb-1">
+        <div className="flex justify-center mb-3">
+          <img src="/android-chrome-192x192.png" alt="Kastriva Absensi" className="w-16 h-16 rounded-2xl object-contain" />
+        </div>
+        <h1 className="text-xl font-bold mb-1 text-center">
           {mode === "login" ? "Masuk" : "Daftar Akun"}
         </h1>
-        <p className="text-xs text-slate-400 mb-5">
-          Autentikasi modern · data tetap di Spreadsheet
+        <p className="text-xs text-slate-400 mb-5 text-center">
+          Kastriva Absensi · data tetap di Spreadsheet
         </p>
 
         <form onSubmit={submit} className="space-y-3 text-sm">
@@ -91,10 +94,18 @@ export default function LoginPage() {
         </form>
 
         <button onClick={() => { setMode((m) => (m === "login" ? "register" : "login")); setMsg(null); }}
-          className="mt-4 text-xs text-slate-400 hover:text-white">
+          className="mt-4 text-xs text-slate-400 hover:text-white block mx-auto">
           {mode === "login" ? "Belum punya akun? Daftar" : "Sudah punya akun? Masuk"}
         </button>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white">Loading...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }
