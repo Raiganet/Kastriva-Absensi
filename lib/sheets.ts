@@ -91,3 +91,74 @@ export async function createWebUser(u: {
   await ensureSheet("WebUsers", ["UserID", "Email", "PasswordHash", "Role", "CreatedAt"]);
   await append("WebUsers!A:Z", [u.UserID, u.Email, u.PasswordHash, u.Role, u.CreatedAt]);
 }
+// ============================================
+// OTP FUNCTIONS (untuk lupa password)
+// ============================================
+export async function getOtpRecord(email: string) {
+  try {
+    const rows = toObjects(await values("OTPCodes!A:C"));
+    const record = rows.find((r) => (r.Email || "").toLowerCase() === email.toLowerCase());
+    if (!record) return null;
+    return {
+      email: record.Email,
+      otp: record.OTP,
+      expiry: parseInt(record.Expiry || "0", 10),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveOtpRecord(email: string, otp: string, expiry: number) {
+  await ensureSheet("OTPCodes", ["Email", "OTP", "Expiry"]);
+  const rows = await values("OTPCodes!A:C");
+  let found = false;
+  for (let i = 1; i < rows.length; i++) {
+    if ((rows[i][0] || "").toString().toLowerCase() === email.toLowerCase()) {
+      const sheets = google.sheets({ version: "v4", auth });
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SID(),
+        range: `OTPCodes!B${i + 1}:C${i + 1}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[otp, expiry.toString()]] },
+      });
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    await append("OTPCodes!A:C", [email, otp, expiry.toString()]);
+  }
+}
+
+export async function deleteOtpRecord(email: string) {
+  try {
+    const rows = await values("OTPCodes!A:C");
+    for (let i = 1; i < rows.length; i++) {
+      if ((rows[i][0] || "").toString().toLowerCase() === email.toLowerCase()) {
+        const sheets = google.sheets({ version: "v4", auth });
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId: SID(),
+          range: `OTPCodes!A${i + 1}:C${i + 1}`,
+        });
+        break;
+      }
+    }
+  } catch {}
+}
+
+export async function updateWebUserPassword(email: string, passwordHash: string) {
+  const sheets = google.sheets({ version: "v4", auth });
+  const rows = await values("WebUsers!A:E");
+  for (let i = 1; i < rows.length; i++) {
+    if ((rows[i][1] || "").toString().toLowerCase() === email.toLowerCase()) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SID(),
+        range: `WebUsers!C${i + 1}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[passwordHash]] },
+      });
+      return;
+    }
+  }
+}
