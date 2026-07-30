@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import LogoutButton from "./logout-button";
-import { ThemeToggle, useSession } from "@/components/ui-session";
+import { ThemeToggle } from "@/components/ui";
+import { useSession } from "@/components/session";
 import { NAV_ITEMS } from "@/lib/rbac";
 
 const ICONS: Record<string, any> = {
