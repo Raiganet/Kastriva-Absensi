@@ -13,6 +13,8 @@ export async function GET() {
     ok: true,
     email: s.email,
     role: s.role,
+    scope: s.scope,
+    classes: s.classes,
     meta: {
       label: meta.label,
       short: meta.short,
