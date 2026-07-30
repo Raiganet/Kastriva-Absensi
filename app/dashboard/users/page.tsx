@@ -7,6 +7,7 @@ import {
   Check, X as XIcon, Info, ChevronDown,
 } from "lucide-react";
 import { useToast, useConfirm } from "@/components/ui";
+import { useSession } from "@/components/session";
 import {
   can, isReadOnly, ROLE_META, ROLE_OPTIONS, normalizeRole,
 } from "@/lib/rbac";
@@ -38,14 +39,17 @@ const GRID = "minmax(150px,1.5fr) repeat(6, minmax(74px,1fr))";
 export default function UsersPage() {
   const toast = useToast();
   const confirm = useConfirm();
+  const { data: session } = useSession();
   const [users, setUsers] = useState<UserRec[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<UserRec | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ Email: "", Password: "", Role: "admin" });
+  const [form, setForm] = useState({ Email: "", Password: "", Role: "admin", Classes: "" });
   const [q, setQ] = useState("");
   const [fRole, setFRole] = useState("");
+
+  const isWaliTarget = normalizeRole(form.Role) === "wali_kelas";
 
   const load = async () => {
     try { setUsers(await (await fetch("/api/users")).json()); }
@@ -66,10 +70,13 @@ export default function UsersPage() {
     e.preventDefault();
     setBusy(true);
     try {
+      const body = editing
+        ? { ...form, UserID: editing.UserID }
+        : form;
       const res = await fetch("/api/users", {
         method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editing ? { ...form, UserID: editing.UserID } : form),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "Gagal menyimpan user."); return; }
@@ -79,13 +86,13 @@ export default function UsersPage() {
     finally { setBusy(false); }
   }
 
-  function openAdd() { setEditing(null); setForm({ Email: "", Password: "", Role: "admin" }); setShowForm(true); }
+  function openAdd() { setEditing(null); setForm({ Email: "", Password: "", Role: "admin", Classes: "" }); setShowForm(true); }
   function openEdit(u: UserRec) {
     setEditing(u);
-    setForm({ Email: u.Email, Password: "", Role: normalizeRole(u.Role) });
+    setForm({ Email: u.Email, Password: "", Role: normalizeRole(u.Role), Classes: (u as any).Classes || "" });
     setShowForm(true);
   }
-  function closeForm() { setShowForm(false); setEditing(null); setForm({ Email: "", Password: "", Role: "admin" }); }
+  function closeForm() { setShowForm(false); setEditing(null); setForm({ Email: "", Password: "", Role: "admin", Classes: "" }); }
 
   async function remove(u: UserRec) {
     const ok = await confirm({
@@ -122,7 +129,7 @@ export default function UsersPage() {
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
             <h2 className="text-sm font-bold text-white flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-indigo-300" /> Matriks Wewenang Per Peran</h2>
-            <p className="text-[11px] text-slate-500 mt-1">Apa yang boleh dilakukan tiap peran, lengkap dengan penjelasannya. Pagar server-nya menyala di langkah berikutnya — ini peta kebijakannya.</p>
+            <p className="text-[11px] text-slate-500 mt-1">Apa yang boleh dilakukan tiap peran, lengkap dengan penjelasannya. Wali kelas dibatasi pada kelas binaannya (kolom “Kelas Binaan”).</p>
           </div>
         </div>
 
@@ -216,6 +223,7 @@ export default function UsersPage() {
               <tr className="text-slate-400 uppercase text-[10px] sm:text-xs">
                 <th className="p-3">Email</th>
                 <th className="p-3">Peran</th>
+                <th className="p-3 hidden md:table-cell">Kelas Binaan</th>
                 <th className="p-3 hidden sm:table-cell">Dibuat</th>
                 <th className="p-3 text-right">Aksi</th>
               </tr>
@@ -224,6 +232,7 @@ export default function UsersPage() {
               {filtered.map((u) => {
                 const m = ROLE_META[normalizeRole(u.Role)];
                 const Icon = ROLE_ICON[m.icon] || Shield;
+                const cls = ((u as any).Classes || "").toString();
                 return (
                   <tr key={u.UserID}>
                     <td className="p-3"><span className="font-mono text-indigo-300 break-all">{u.Email}</span></td>
@@ -232,6 +241,11 @@ export default function UsersPage() {
                         <Icon className="w-3 h-3" /> {m.label}
                         {m.readOnly && <span className="opacity-70">· baca‑saja</span>}
                       </span>
+                    </td>
+                    <td className="p-3 hidden md:table-cell">
+                      {normalizeRole(u.Role) === "wali_kelas"
+                        ? (cls ? <span className="text-sky-300 text-xs">{cls}</span> : <span className="text-amber-300/80 text-xs">belum diisi</span>)
+                        : <span className="text-slate-500 text-xs">—</span>}
                     </td>
                     <td className="p-3 text-slate-400 text-xs hidden sm:table-cell whitespace-nowrap">{u.CreatedAt ? new Date(u.CreatedAt).toLocaleDateString("id-ID") : "—"}</td>
                     <td className="p-3 text-right whitespace-nowrap">
@@ -242,7 +256,7 @@ export default function UsersPage() {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={4} className="p-10 text-center text-slate-500 text-sm">{users.length === 0 ? "Belum ada user terdaftar." : "Tidak ada user sesuai filter."}</td></tr>
+                <tr><td colSpan={5} className="p-10 text-center text-slate-500 text-sm">{users.length === 0 ? "Belum ada user terdaftar." : "Tidak ada user sesuai filter."}</td></tr>
               )}
             </tbody>
           </table>
@@ -277,6 +291,15 @@ export default function UsersPage() {
                   <p className="text-[10px] text-slate-500 mt-1.5">Akun lama bertipe “user” ditampilkan sebagai Administrator (wewenang setara).</p>
                 )}
               </div>
+
+              {isWaliTarget && (
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1.5 font-medium">Kelas Binaan <span className="text-rose-300">*</span></label>
+                  <div className="relative"><GraduationCap className="w-4 h-4 absolute left-3 top-3 text-slate-500" /><textarea value={form.Classes} onChange={(e) => setForm({ ...form, Classes: e.target.value })} rows={2} className="glass-input w-full pl-10 pr-3 py-2.5 text-sm" placeholder="XI IPA 1, XI IPA 2" /></div>
+                  <p className="text-[10px] text-slate-500 mt-1.5">Pisahkan beberapa kelas dengan koma. Wali kelas hanya akan melihat siswa &amp; kehadiran kelas‑kelas ini.</p>
+                </div>
+              )}
+
               <div className="flex gap-3 pt-1">
                 <button type="submit" disabled={busy} className="glass-button flex-1 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50">{busy && <Loader2 className="w-4 h-4 animate-spin" />}{editing ? "Perbarui" : "Simpan"}</button>
                 <button type="button" onClick={closeForm} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-200 border border-white/15 hover:bg-white/10">Batal</button>
@@ -289,9 +312,8 @@ export default function UsersPage() {
   );
 }
 
-/* ===== Pemilih peran bertema (mengganti <select> native) ===== */
+/* ===== Pemilih peran bertema ===== */
 const DISABLED_REASON: Partial<Record<Role, string>> = {
-  wali_kelas: "Tersedia setelah pemetaan kelas binaan disiapkan.",
   super_admin: "Hanya melalui penyiapan awal sistem (seed).",
 };
 
@@ -377,15 +399,6 @@ function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) 
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-function MField({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-[11px] text-slate-400 mb-1.5 font-medium">{label}</label>
-      <div className="relative"><span className="absolute left-3 top-3 text-slate-500 pointer-events-none">{icon}</span>{children}</div>
     </div>
   );
 }
