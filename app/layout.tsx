@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import Script from "next/script";
 import { ToastProvider, ConfirmProvider } from "@/components/ui";
+import { SessionProvider } from "@/components/session";
 
 export const metadata: Metadata = {
   title: "Kastriva Absensi",
@@ -41,7 +42,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
         <ToastProvider>
           <ConfirmProvider>
-            <div className="relative z-10 min-h-screen">{children}</div>
+            <SessionProvider>
+              <div className="relative z-10 min-h-screen">{children}</div>
+            </SessionProvider>
           </ConfirmProvider>
         </ToastProvider>
       </body>
