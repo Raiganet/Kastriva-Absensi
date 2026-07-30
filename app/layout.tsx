@@ -1,6 +1,8 @@
-﻿import "./globals.css";
+import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import Script from "next/script";
+import { ToastProvider, ConfirmProvider } from "@/components/ui";
 
 export const metadata: Metadata = {
   title: "Kastriva Absensi",
@@ -14,34 +16,34 @@ export const metadata: Metadata = {
     ],
     apple: "/apple-touch-icon.png",
   },
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "Kastriva Absensi",
-  },
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Kastriva Absensi" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false,
   themeColor: "#6366f1",
 };
 
+const THEME_INIT = `(function(){try{var t=localStorage.getItem('kastriva-theme');if(!t){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="id">
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#6366f1" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Kastriva Absensi" />
-        <meta name="mobile-web-app-capable" content="yes" />
-      </head>
-      <body className="bg-slate-950 text-slate-100 min-h-screen antialiased">
-        {children}
+    <html lang="id" suppressHydrationWarning>
+      <body className="min-h-screen antialiased">
+        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap"
+          rel="stylesheet"
+        />
+        <ToastProvider>
+          <ConfirmProvider>
+            <div className="relative z-10 min-h-screen">{children}</div>
+          </ConfirmProvider>
+        </ToastProvider>
       </body>
     </html>
   );

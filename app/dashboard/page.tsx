@@ -1,228 +1,413 @@
 "use client";
-import { useEffect, useState } from "react";
-import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from "chart.js";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Chart as ChartJS, ArcElement, Tooltip, Legend as ChartLegend,
+  CategoryScale, LinearScale, BarElement,
+} from "chart.js";
 import { Pie, Bar } from "react-chartjs-2";
-import { Users, UserCheck, UserX, LogOut } from "lucide-react";
-import LogoutButton from "./logout-button";
+import {
+  Users, UserCheck, UserX, Thermometer, Mail, Clock,
+  ClipboardList, Search, RotateCcw, ArrowRight, CalendarDays, PartyPopper,
+} from "lucide-react";
 
-ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
+ChartJS.register(ArcElement, Tooltip, ChartLegend, CategoryScale, LinearScale, BarElement);
+
+const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+const TZ = "Asia/Jakarta";
+
+type Cat = "hadir" | "sakit" | "izin" | "alfa" | "belum";
+type RecCat = "hadir" | "sakit" | "izin" | "alfa";
+type Att = { Student_ID?: string; Status?: string; Date_String?: string; Time_String?: string };
+type Stu = { Student_ID?: string; Student_Name?: string; Class_Name?: string };
+type Row = Stu & { cat: Cat; masuk?: string; pulang?: string; catTime?: string };
+type ClsStat = { cls: string; total: number; hadir: number; sakit: number; izin: number; alfa: number; belum: number };
+type DayInfo = { cats: Set<RecCat>; masuk?: string; pulang?: string; tByCat: Record<string, string> };
+
+const SEV: Record<Cat, number> = { belum: 0, alfa: 1, sakit: 2, izin: 3, hadir: 4 };
+
+const CAT_META: Record<Cat, { label: string; dot: string; text: string; solid: string; badge: string; chip: string; row: string; ring: string }> = {
+  hadir: { label: "Hadir", dot: "bg-emerald-400", text: "text-emerald-300", solid: "#10B981", badge: "bg-emerald-500/15 text-emerald-300 border-emerald-400/30", chip: "bg-emerald-500/20 border-emerald-400/40 text-emerald-200", row: "", ring: "ring-emerald-400/50" },
+  sakit: { label: "Sakit", dot: "bg-amber-400", text: "text-amber-300", solid: "#F59E0B", badge: "bg-amber-500/15 text-amber-300 border-amber-400/30", chip: "bg-amber-500/20 border-amber-400/40 text-amber-200", row: "bg-amber-500/[0.06]", ring: "ring-amber-400/50" },
+  izin:  { label: "Izin",  dot: "bg-sky-400",     text: "text-sky-300",     solid: "#0EA5E9", badge: "bg-sky-500/15 text-sky-300 border-sky-400/30",     chip: "bg-sky-500/20 border-sky-400/40 text-sky-200",     row: "bg-sky-500/[0.06]",     ring: "ring-sky-400/50" },
+  alfa:  { label: "Alfa",  dot: "bg-rose-400",    text: "text-rose-300",    solid: "#F43F5E", badge: "bg-rose-500/15 text-rose-300 border-rose-400/30",    chip: "bg-rose-500/20 border-rose-400/40 text-rose-200",    row: "bg-rose-500/[0.07]",    ring: "ring-rose-400/50" },
+  belum: { label: "Belum", dot: "bg-slate-400",   text: "text-slate-300",   solid: "#94A3B8", badge: "bg-slate-500/15 text-slate-300 border-slate-400/30", chip: "bg-slate-500/20 border-slate-400/40 text-slate-200", row: "bg-slate-500/[0.06]",   ring: "ring-slate-400/50" },
+};
+const CAT_ORDER: Cat[] = ["hadir", "sakit", "izin", "alfa", "belum"];
+
+function todayYMD() { return new Date().toLocaleDateString("sv-SE", { timeZone: TZ }); }
+function todayIndo() {
+  const d = new Date(new Date().toLocaleString("en-US", { timeZone: TZ }));
+  return HARI[d.getDay()] + ", " + d.getDate() + " " + BULAN[d.getMonth()] + " " + d.getFullYear();
+}
+function hm(t?: string) { return t ? t.slice(0, 5) : "—"; }
+function recCat(status?: string): RecCat {
+  const s = (status || "").toLowerCase().trim();
+  if (s.includes("sakit")) return "sakit";
+  if (s.includes("izin")) return "izin";
+  if (s.includes("alfa") || s.includes("alpha")) return "alfa";
+  return "hadir";
+}
+function dominant(cats: Set<RecCat>): Cat {
+  if (cats.has("sakit")) return "sakit";
+  if (cats.has("izin")) return "izin";
+  if (cats.has("alfa")) return "alfa";
+  return "hadir";
+}
+function subText(r: Row): string | null {
+  if (r.cat === "belum") return null;
+  if (r.cat === "hadir") {
+    const p: string[] = [];
+    if (r.masuk) p.push("Masuk " + hm(r.masuk));
+    if (r.pulang) p.push("Pulang " + hm(r.pulang));
+    return p.length ? p.join(" · ") : null;
+  }
+  return CAT_META[r.cat].label + (r.catTime ? " " + hm(r.catTime) : "");
+}
 
 export default function DashboardPage() {
-  const [data, setData] = useState({
-    students: [],
-    attendance: [],
-    settings: { school_name: "Sistem Absensi Digital" },
-    loading: true,
-  });
+  const [students, setStudents] = useState<Stu[]>([]);
+  const [attendance, setAttendance] = useState<Att[]>([]);
+  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  const [fStatus, setFStatus] = useState<"all" | Cat>("all");
+  const [fClass, setFClass] = useState("");
+  const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(50);
 
   useEffect(() => {
-    fetchData();
+    (async () => {
+      try {
+        const [s, a, st] = await Promise.all([fetch("/api/students"), fetch("/api/attendance"), fetch("/api/settings")]);
+        setStudents(await s.json()); setAttendance(await a.json()); setSettings(await st.json());
+      } catch (e) { setErr(e instanceof Error ? e.message : "Gagal memuat data."); }
+      finally { setLoading(false); }
+    })();
   }, []);
 
-  async function fetchData() {
-    try {
-      const [studentsRes, attendanceRes, settingsRes] = await Promise.all([
-        fetch("/api/students"),
-        fetch("/api/attendance"),
-        fetch("/api/settings"),
-      ]);
-      
-      const students = await studentsRes.json();
-      const attendance = await attendanceRes.json();
-      const settings = await settingsRes.json();
+  useEffect(() => { setLimit(50); }, [fStatus, fClass, q]);
 
-      const today = new Date().toLocaleDateString("sv-SE");
-      const hadirToday = new Set(
-        attendance.filter((a: any) => a.Date_String === today).map((a: any) => a.Student_ID)
-      );
+  const today = todayYMD();
 
-      setData({ students, attendance, settings, loading: false });
+  const bySid = useMemo(() => {
+    const m: Record<string, DayInfo> = {};
+    attendance.forEach((a) => {
+      if ((a.Date_String || "") !== today) return;
+      const sid = a.Student_ID || ""; if (!sid) return;
+      let info = m[sid];
+      if (!info) { info = { cats: new Set<RecCat>(), tByCat: {} }; m[sid] = info; }
+      const c = recCat(a.Status); info.cats.add(c);
+      const t = a.Time_String || "";
+      if (!info.tByCat[c]) info.tByCat[c] = t;
+      const st = (a.Status || "").toLowerCase();
+      if (st.includes("masuk") && !info.masuk) info.masuk = t;
+      if (st.includes("pulang") && !info.pulang) info.pulang = t;
+    });
+    return m;
+  }, [attendance, today]);
 
-      // Hitung statistik per kelas
-      const classStats: any = {};
-      students.forEach((s: any) => {
-        const cls = s.Class_Name;
-        if (!classStats[cls]) {
-          classStats[cls] = { total: 0, hadir: 0 };
-        }
-        classStats[cls].total++;
-        if (hadirToday.has(s.Student_ID)) {
-          classStats[cls].hadir++;
-        }
-      });
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setData((prev) => ({ ...prev, loading: false }));
-    }
-  }
+  const rows: Row[] = useMemo(() => students.map((s) => {
+    const sid = s.Student_ID || "";
+    const info = bySid[sid];
+    if (!info) return { ...s, cat: "belum" as Cat };
+    const dom = dominant(info.cats);
+    return { ...s, cat: dom, masuk: info.masuk, pulang: info.pulang, catTime: info.tByCat[dom] };
+  }), [students, bySid]);
 
-  if (data.loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">Loading...</div>
-      </div>
-    );
-  }
+  const counts = useMemo(() => {
+    const c: Record<Cat, number> = { hadir: 0, sakit: 0, izin: 0, alfa: 0, belum: 0 };
+    rows.forEach((r) => { c[r.cat]++; });
+    return c;
+  }, [rows]);
 
-  const today = new Date().toLocaleDateString("sv-SE");
-  const hadirToday = new Set(
-    data.attendance.filter((a: any) => a.Date_String === today).map((a: any) => a.Student_ID)
-  );
+  const total = rows.length;
+  const scanToday = useMemo(() => attendance.filter((a) => (a.Date_String || "") === today).length, [attendance, today]);
 
-  const totalSiswa = data.students.length;
-  const hadir = hadirToday.size;
-  const belum = totalSiswa - hadir;
+  const classStats = useMemo(() => {
+    const m: Record<string, ClsStat> = {};
+    rows.forEach((r) => {
+      const c = r.Class_Name || "-";
+      if (!m[c]) m[c] = { cls: c, total: 0, hadir: 0, sakit: 0, izin: 0, alfa: 0, belum: 0 };
+      const o = m[c]; o.total++; o[r.cat]++;
+    });
+    return Object.values(m).sort((a, b) => a.cls.localeCompare(b.cls));
+  }, [rows]);
+  const classOptions = classStats.map((c) => c.cls);
 
-  // Data untuk chart
-  const pieData = {
-    labels: ["Hadir", "Belum Absen"],
-    datasets: [
-      {
-        data: [hadir, belum],
-        backgroundColor: ["#10B981", "#F59E0B"],
-        borderColor: ["#059669", "#D97706"],
-        borderWidth: 2,
-      },
-    ],
-  };
+  const filtered = useMemo(() => {
+    const ql = q.trim().toLowerCase();
+    const list = rows.filter((r) => {
+      if (fStatus !== "all" && r.cat !== fStatus) return false;
+      if (fClass && (r.Class_Name || "-") !== fClass) return false;
+      if (ql && !((r.Student_Name || "").toLowerCase().includes(ql) || (r.Student_ID || "").toLowerCase().includes(ql))) return false;
+      return true;
+    });
+    list.sort((a, b) => (SEV[a.cat] - SEV[b.cat]) || (a.Class_Name || "").localeCompare(b.Class_Name || "") || (a.Student_Name || "").localeCompare(b.Student_Name || ""));
+    return list;
+  }, [rows, fStatus, fClass, q]);
 
-  // Hitung statistik per kelas untuk bar chart
-  const classStats: any = {};
-  data.students.forEach((s: any) => {
-    const cls = s.Class_Name;
-    if (!classStats[cls]) {
-      classStats[cls] = { total: 0, hadir: 0 };
-    }
-    classStats[cls].total++;
-    if (hadirToday.has(s.Student_ID)) {
-      classStats[cls].hadir++;
-    }
-  });
+  const visible = filtered.slice(0, limit);
+  const filterActive = fStatus !== "all" || fClass !== "" || q.trim() !== "";
 
+  const pieData = { labels: CAT_ORDER.map((c) => CAT_META[c].label), datasets: [{ data: CAT_ORDER.map((c) => counts[c]), backgroundColor: CAT_ORDER.map((c) => CAT_META[c].solid), borderColor: "rgba(15,23,42,0.6)", borderWidth: 3 }] };
+  const pieOpts: any = { responsive: true, maintainAspectRatio: false, cutout: "60%", plugins: { legend: { labels: { color: "#cbd5e1", font: { size: 11 } } } } };
   const barData = {
-    labels: Object.keys(classStats),
-    datasets: [
-      {
-        label: "Hadir",
-        data: Object.values(classStats).map((s: any) => s.hadir),
-        backgroundColor: "#10B981",
-      },
-      {
-        label: "Belum",
-        data: Object.values(classStats).map((s: any) => s.total - s.hadir),
-        backgroundColor: "#F59E0B",
-      },
-    ],
+    labels: classStats.map((c) => c.cls),
+    datasets: CAT_ORDER.map((cat) => ({ label: CAT_META[cat].label, data: classStats.map((c) => c[cat]), backgroundColor: CAT_META[cat].solid, borderRadius: 3, stack: "s" })),
   };
+  const barOpts: any = { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true, ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { color: "#64748b", precision: 0, font: { size: 10 } }, grid: { color: "rgba(148,163,184,0.08)" } } }, plugins: { legend: { labels: { color: "#cbd5e1", font: { size: 11 } } } } };
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-300">Memuat dashboard…</div>;
+
+  const catCards: { cat: Cat; icon: ReactNode }[] = [
+    { cat: "hadir", icon: <UserCheck className="w-5 h-5" /> },
+    { cat: "sakit", icon: <Thermometer className="w-5 h-5" /> },
+    { cat: "izin", icon: <Mail className="w-5 h-5" /> },
+    { cat: "alfa", icon: <UserX className="w-5 h-5" /> },
+    { cat: "belum", icon: <Clock className="w-5 h-5" /> },
+  ];
 
   return (
-    <div className="min-h-screen p-6 md:p-8 bg-slate-950">
-      <header className="flex items-center justify-between mb-8">
+    <div className="space-y-6 animate-fadeIn">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-white">{data.settings.school_name}</h1>
-          <p className="text-sm text-slate-400 mt-1">Dashboard · Terhubung ke Spreadsheet</p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">{settings.school_name || "Kastriva Absensi"}</h1>
+          <p className="text-sm text-slate-400 mt-1 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-indigo-300" /> {todayIndo()}</p>
         </div>
-        <LogoutButton />
       </header>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <StatCard icon={<UserCheck className="w-6 h-6" />} label="Hadir Hari Ini" value={hadir} color="emerald" sub={`${totalSiswa} siswa`} />
-        <StatCard icon={<Users className="w-6 h-6" />} label="Total Siswa" value={totalSiswa} color="blue" />
-        <StatCard icon={<UserX className="w-6 h-6" />} label="Belum Absen" value={belum} color="amber" />
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-            <Users className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-400">Total Log Absensi</p>
-            <h3 className="text-2xl font-bold text-white">{data.attendance.length}</h3>
-          </div>
-        </div>
-      </div>
+      {err && <div className="glass-card p-4 text-sm text-rose-200 border-rose-400/30">{err}</div>}
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Kehadiran Global Hari Ini</h3>
-          <div className="h-64 flex items-center justify-center">
-            <Pie data={pieData} options={{ responsive: true, maintainAspectRatio: false }} />
-          </div>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Kehadiran Per Kelas</h3>
-          <div className="h-64">
-            <Bar data={barData} options={{ responsive: true, maintainAspectRatio: false }} />
-          </div>
-        </div>
-      </div>
-
-      {/* Ringkasan Per Kelas */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8">
-        <h3 className="text-lg font-semibold text-white mb-4">Ringkasan Per Kelas</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {Object.entries(classStats).map(([className, stats]: [string, any]) => {
-            const percentage = Math.round((stats.hadir / stats.total) * 100) || 0;
-            return (
-              <div key={className} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-white">{className}</span>
-                  <span className="text-xs text-amber-400">{percentage}%</span>
+      {/* ===== KARTU KATEGORI (bisa diklik = filter) ===== */}
+           {/* ===== KARTU KATEGORI: baris utama + pemisah emas + baris rincian ===== */}
+      {(() => {
+        // satu definisi kartu -> baris atas & bawah pasti identik
+        const card = (cat: Cat) => {
+          const m = CAT_META[cat];
+          const active = fStatus === cat;
+          const count = counts[cat];
+          const pulse = cat === "belum" && count > 0;
+          const iconNode = catCards.find((c) => c.cat === cat)?.icon;
+          return (
+            <button
+              onClick={() => setFStatus((p) => (p === cat ? "all" : cat))}
+              className={`glass-card p-3 sm:p-4 text-left transition hover:-translate-y-0.5 ${active ? "ring-2 " + m.ring : ""}`}
+            >
+              <div className="flex items-center justify-between">
+                <div className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-white/5 ${m.text}`}>
+                  {iconNode}
+                  {pulse && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />}
                 </div>
-                <div className="text-2xl font-bold text-white mb-1">
-                  {stats.hadir} <span className="text-sm text-slate-400 font-normal">/ {stats.total} hadir</span>
-                </div>
-                <div className="w-full bg-slate-700 rounded-full h-2 mb-2">
-                  <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${percentage}%` }} />
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-emerald-400">✓ {stats.hadir} absen</span>
-                  <span className="text-amber-400">• {stats.total - stats.hadir} belum</span>
-                </div>
+                <span className={`w-2 h-2 rounded-full ${m.dot}`} />
               </div>
+              <p className="text-[10px] sm:text-[11px] text-slate-400 mt-2.5 sm:mt-3 truncate">{m.label}</p>
+              <h3 className="text-xl sm:text-2xl font-extrabold text-white leading-tight tabular">{count}</h3>
+            </button>
+          );
+        };
+
+        const totalCard = (
+          <div className="glass-card p-3 sm:p-4 text-left">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center bg-white/5 text-indigo-300">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+            <p className="text-[10px] sm:text-[11px] text-slate-400 mt-2.5 sm:mt-3">Total Siswa</p>
+            <h3 className="text-xl sm:text-2xl font-extrabold text-white leading-tight tabular">{total}</h3>
+          </div>
+        );
+
+        // pemisah emas premium: garis gradien + 3 berlian bercahaya di tengah
+        const goldLine = (
+          <div className="flex items-center gap-2.5 py-0.5" aria-hidden="true">
+            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-300/40 to-amber-300/70" />
+            <span className="h-1.5 w-1.5 rotate-45 bg-gradient-to-br from-amber-200 to-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.55)]" />
+            <span className="h-2 w-2 rotate-45 bg-gradient-to-br from-amber-100 to-amber-400 shadow-[0_0_14px_rgba(251,191,36,0.7)]" />
+            <span className="h-1.5 w-1.5 rotate-45 bg-gradient-to-br from-amber-200 to-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.55)]" />
+            <span className="h-px flex-1 bg-gradient-to-l from-transparent via-amber-300/40 to-amber-300/70" />
+          </div>
+        );
+
+        return (
+          <div className="space-y-3 sm:space-y-4">
+            {/* baris utama: headline operasional */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              {card("hadir")}
+              {card("belum")}
+              {totalCard}
+            </div>
+
+            {goldLine}
+
+            {/* baris rincian: alasan ketidakhadiran */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              {card("sakit")}
+              {card("izin")}
+              {card("alfa")}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* legend warna */}
+      <div className="glass-card px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px]">
+        <span className="text-slate-400 font-semibold mr-1">Keterangan warna:</span>
+        {CAT_ORDER.map((c) => (
+          <span key={c} className="flex items-center gap-1.5 text-slate-300"><i className={`w-2.5 h-2.5 rounded-full ${CAT_META[c].dot}`} /> {CAT_META[c].label}</span>
+        ))}
+        <span className="text-slate-500 ml-auto">Total scan hari ini: <span className="text-slate-200 font-semibold">{scanToday}</span></span>
+      </div>
+
+      {/* ===== CHART ===== */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="glass-card p-5 sm:p-6">
+          <h3 className="text-sm font-bold text-white mb-4">Komposisi Kehadiran Hari Ini</h3>
+          <div className="h-56 flex items-center justify-center"><Pie data={pieData} options={pieOpts} /></div>
+        </div>
+        <div className="glass-card p-5 sm:p-6">
+          <h3 className="text-sm font-bold text-white mb-1">Sebaran Per Kelas</h3>
+          <p className="text-[11px] text-slate-500 mb-3">Tumpukan warna = Hadir / Sakit / Izin / Alfa / Belum per kelas.</p>
+          <div className="h-56"><Bar data={barData} options={barOpts} /></div>
+        </div>
+      </div>
+
+      {/* ===== RINGKASAN PER KELAS (stacked bar) ===== */}
+      <div className="glass-card p-5 sm:p-6">
+        <h3 className="text-sm font-bold text-white mb-4">Ringkasan Per Kelas <span className="text-[11px] font-normal text-slate-500">(klik untuk memfilter)</span></h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {classStats.map((c) => {
+            const pct = c.total > 0 ? Math.round((c.hadir / c.total) * 100) : 0;
+            const full = c.hadir >= c.total && c.total > 0;
+            const problems = (["sakit", "izin", "alfa", "belum"] as Cat[]).filter((k) => c[k] > 0);
+            return (
+              <button key={c.cls} onClick={() => setFClass((p) => (p === c.cls ? "" : c.cls))}
+                className={`text-left p-4 rounded-2xl border transition hover:-translate-y-0.5 ${fClass === c.cls ? "bg-indigo-500/15 border-indigo-400/40" : "bg-white/[0.03] border-white/10 hover:border-white/20"}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-white">{c.cls}</span>
+                  <span className={`text-[10px] font-mono ${full ? "text-emerald-300" : "text-amber-300"}`}>{full ? "LENGKAP" : pct + "%"}</span>
+                </div>
+                <div className="flex items-baseline gap-1 mb-2">
+                  <span className="text-xl font-extrabold text-white">{c.hadir}</span>
+                  <span className="text-[11px] text-slate-500">/ {c.total} hadir</span>
+                </div>
+                <StackedBar c={c} />
+                <div className="mt-2 text-[10px]">
+                  {problems.length === 0 ? (
+                    <span className="text-emerald-300">✓ Semua hadir</span>
+                  ) : (
+                    <span className="flex flex-wrap gap-x-2 gap-y-0.5">
+                      {problems.map((k) => (
+                        <span key={k} className={`flex items-center gap-1 ${CAT_META[k].text}`}><i className={`w-1.5 h-1.5 rounded-full ${CAT_META[k].dot}`} />{CAT_META[k].label} {c[k]}</span>
+                      ))}
+                    </span>
+                  )}
+                </div>
+              </button>
             );
           })}
         </div>
       </div>
 
-      {/* Tabel Siswa */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-white">Data Siswa (dari Spreadsheet)</h3>
-          <a href="/dashboard/students" className="text-xs text-indigo-400 hover:text-indigo-300">
-            Kelola Siswa →
-          </a>
+      {/* ===== DAFTAR KEHADIRAN (filter per kategori) ===== */}
+      <div className="glass-card p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <h3 className="text-base sm:text-lg font-extrabold text-white flex items-center gap-2"><ClipboardList className="w-5 h-5 text-indigo-300" /> Daftar Kehadiran Siswa</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Klik kartu / chip kategori untuk melihat siapa saja · yang butuh perhatian tampil paling atas</p>
+          </div>
+          <a href="/dashboard/students" className="text-xs text-indigo-300 hover:text-indigo-200 flex items-center gap-1 whitespace-nowrap">Kelola Siswa <ArrowRight className="w-3.5 h-3.5" /></a>
         </div>
-        <div className="overflow-x-auto">
+
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+          <div className="flex flex-wrap gap-2">
+            <Chip active={fStatus === "all"} onClick={() => setFStatus("all")} label="Semua" count={total} />
+            {CAT_ORDER.map((c) => (
+              <Chip key={c} active={fStatus === c} onClick={() => setFStatus(c)} label={CAT_META[c].label} count={counts[c]} tone={c} pulse={c === "belum" && counts.belum > 0} />
+            ))}
+          </div>
+          <div className="flex flex-1 flex-col sm:flex-row gap-2 sm:items-center">
+            <select value={fClass} onChange={(e) => setFClass(e.target.value)} className="px-3 py-2.5 text-sm sm:max-w-[180px]" aria-label="Filter kelas">
+              <option value="">Semua Kelas</option>
+              {classOptions.map((c) => (<option key={c} value={c}>{c}</option>))}
+            </select>
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari nama atau NIS…" className="w-full pl-9 pr-3 py-2.5 text-sm" />
+            </div>
+            {filterActive && (
+              <button onClick={() => { setFStatus("all"); setFClass(""); setQ(""); }} className="px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 border border-white/15 hover:bg-white/10 flex items-center gap-1.5 whitespace-nowrap">
+                <RotateCcw className="w-3.5 h-3.5" /> Reset
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-white/5">
           <table className="w-full text-left text-sm text-slate-300">
-            <thead className="bg-slate-800 text-slate-400 uppercase text-xs">
-              <tr>
-                <th className="p-3 rounded-tl-lg">NIS</th>
+            <thead>
+              <tr className="text-slate-400 uppercase text-[10px] sm:text-xs">
+                <th className="p-3 hidden lg:table-cell">NIS</th>
                 <th className="p-3">Nama</th>
                 <th className="p-3">Kelas</th>
-                <th className="p-3 rounded-tr-lg">Status Hari Ini</th>
+                <th className="p-3 hidden md:table-cell">Masuk</th>
+                <th className="p-3 hidden md:table-cell">Pulang</th>
+                <th className="p-3 text-right">Kategori</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
-              {data.students.slice(0, 10).map((s: any) => (
-                <tr key={s.Student_ID} className="hover:bg-slate-800/50">
-                  <td className="p-3 font-mono text-indigo-400">{s.Student_ID}</td>
-                  <td className="p-3 font-semibold text-white">{s.Student_Name}</td>
-                  <td className="p-3">{s.Class_Name}</td>
-                  <td className="p-3">
-                    {hadirToday.has(s.Student_ID) ? (
-                      <span className="text-emerald-400 text-xs">✓ Hadir</span>
+            <tbody className="divide-y divide-white/5">
+              {visible.map((r) => {
+                const m = CAT_META[r.cat]; const sub = subText(r);
+                return (
+                  <tr key={r.Student_ID} className={"transition-colors " + (r.cat !== "hadir" ? m.row : "") + " hover:bg-white/[0.04]"}>
+                    <td className="p-3 font-mono text-indigo-300 hidden lg:table-cell whitespace-nowrap">{r.Student_ID}</td>
+                    <td className="p-3">
+                      <div className="font-semibold text-white whitespace-nowrap">{r.Student_Name}</div>
+                      <div className="lg:hidden text-[11px] font-mono text-indigo-300/80">{r.Student_ID}</div>
+                      {sub && <div className={`md:hidden text-[11px] mt-0.5 ${m.text}`}>{sub}</div>}
+                    </td>
+                    <td className="p-3 whitespace-nowrap">{r.Class_Name}</td>
+                    <td className="p-3 font-mono text-slate-400 hidden md:table-cell whitespace-nowrap">{hm(r.masuk)}</td>
+                    <td className="p-3 font-mono text-slate-400 hidden md:table-cell whitespace-nowrap">{hm(r.pulang)}</td>
+                    <td className="p-3 text-right">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border ${m.badge}`}>
+                        <i className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
+                        {m.label}{r.cat !== "hadir" && r.catTime ? " · " + hm(r.catTime) : ""}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-10 text-center">
+                    {fStatus !== "all" && counts[fStatus] === 0 ? (
+                      <div className="flex flex-col items-center gap-2 text-emerald-300">
+                        <PartyPopper className="w-8 h-8" />
+                        <p className="font-semibold">Tidak ada siswa berstatus {CAT_META[fStatus].label} hari ini 👍</p>
+                      </div>
                     ) : (
-                      <span className="text-amber-400 text-xs">• Belum</span>
+                      <div className="flex flex-col items-center gap-2 text-slate-400">
+                        <Search className="w-7 h-7 opacity-60" />
+                        <p className="text-sm">Tidak ada siswa sesuai filter.</p>
+                        <button onClick={() => { setFStatus("all"); setFClass(""); setQ(""); }} className="text-xs text-indigo-300 hover:text-indigo-200">Hapus filter</button>
+                      </div>
                     )}
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
-          {data.students.length === 0 && (
-            <div className="text-center text-slate-500 py-8">Belum ada data siswa</div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-3 text-[11px] text-slate-500">
+          <span>Menampilkan <span className="text-slate-300 font-semibold">{visible.length}</span> dari {filtered.length} siswa{filterActive ? " · filter aktif" : ""}</span>
+          {filtered.length > limit && (
+            <div className="flex items-center gap-3">
+              <button onClick={() => setLimit((l) => l + 50)} className="px-3 py-1.5 rounded-lg text-slate-200 border border-white/15 hover:bg-white/10 font-semibold">+ 50 lagi</button>
+              <button onClick={() => setLimit(filtered.length)} className="text-indigo-300 hover:text-indigo-200">tampilkan semua ({filtered.length})</button>
+            </div>
           )}
         </div>
       </div>
@@ -230,23 +415,24 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ icon, label, value, color, sub }: any) {
-  const colors: any = {
-    emerald: "bg-emerald-500/10 text-emerald-400",
-    blue: "bg-blue-500/10 text-blue-400",
-    amber: "bg-amber-500/10 text-amber-400",
-  };
-  
+/* ---------- sub-komponen ---------- */
+function StackedBar({ c }: { c: ClsStat }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center gap-4">
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colors[color]}`}>
-        {icon}
-      </div>
-      <div>
-        <p className="text-xs text-slate-400">{label}</p>
-        <h3 className="text-2xl font-bold text-white">{value}</h3>
-        {sub && <p className="text-[10px] text-slate-500">{sub}</p>}
-      </div>
+    <div className="flex h-2 rounded-full overflow-hidden bg-white/10">
+      {CAT_ORDER.map((k) => (c[k] > 0 ? <i key={k} className="h-full" style={{ width: (c[k] / c.total) * 100 + "%", background: CAT_META[k].solid }} /> : null))}
     </div>
+  );
+}
+
+function Chip({ active, onClick, label, count, tone, pulse }: { active: boolean; onClick: () => void; label: string; count: number; tone?: Cat; pulse?: boolean }) {
+  const style = active && tone ? CAT_META[tone].chip : active ? "bg-indigo-500/20 border-indigo-400/40 text-indigo-200" : "bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.07] hover:border-white/20";
+  return (
+    <button onClick={onClick} className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border transition active:scale-95 ${style}`}>
+      <span className="relative flex items-center">
+        {pulse && !active && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse mr-1.5" />}
+        {label}
+      </span>
+      <span className={`font-mono px-1.5 py-0.5 rounded-md text-[10px] ${active ? "bg-black/20" : "bg-white/10"}`}>{count}</span>
+    </button>
   );
 }
