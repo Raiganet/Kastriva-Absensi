@@ -1,15 +1,11 @@
 // =====================================================================
 //  KASTRIVA · RBAC  —  satu sumber kebenaran kebijakan peran
 //  Murni TypeScript (tanpa import runtime) -> aman di Edge & Client.
-//  Semua lapisan B (middleware, route handler, sidebar, badge) membaca
-//  dari sini. Tidak ada "if role === 'admin'" tersebar di tempat lain.
 // =====================================================================
 
-// ---- Peran -----------------------------------------------------------
 export type Role = "super_admin" | "admin" | "kepsek" | "wali_kelas";
 export const ROLES: readonly Role[] = ["super_admin", "admin", "kepsek", "wali_kelas"];
 
-// ---- Aksi atomik -----------------------------------------------------
 export type Action =
   | "view_dashboard"
   | "view_students"   | "manage_students"
@@ -31,10 +27,6 @@ export const ALL_ACTIONS: readonly Action[] = [
   "manage_self",
 ];
 
-// ---- Matriks kebijakan ----------------------------------------------
-//  super_admin & admin  : penuh.
-//  kepsek               : baca semua + cetak + ubah sandi sendiri (read-only thd data).
-//  wali_kelas           : baca ruang lingkupnya (row-level ditegakkan di B-3) + sandi sendiri.
 const FULL: readonly Action[] = ALL_ACTIONS;
 const READ_ONLY_SCOPE: readonly Action[] = [
   "view_dashboard", "view_students", "view_attendance",
@@ -52,18 +44,15 @@ export const POLICY: Record<Role, readonly Action[]> = {
   wali_kelas: WALI_SCOPE,
 };
 
-// ---- Metadata tampilan per peran ------------------------------------
-//  `icon` disimpan sebagai NAMA (string) supaya file ini tetap bebas
-//  dependensi; lapisan UI yang memetakan string -> komponen lucide.
 export interface RoleMeta {
   label: string;
   short: string;
   description: string;
-  icon: string;                 // nama ikon lucide
-  tone: string;                 // kelas tailwind untuk pill/badge
-  accent: string;               // hex untuk dot / chart
+  icon: string;
+  tone: string;
+  accent: string;
   readOnly: boolean;
-  level: number;                // pangkat (bukan wewenang tulis): super>admin>kepsek>wali
+  level: number;
 }
 
 export const ROLE_META: Record<Role, RoleMeta> = {
@@ -93,10 +82,20 @@ export const ROLE_META: Record<Role, RoleMeta> = {
   },
 };
 
-// ---- Normalisasi peran dari data tersimpan --------------------------
-//  "user" (warisan) & nilai tak dikenal -> "admin" selama transisi,
-//  agar tidak ada akun existing yang terkunci saat pagar dinyalakan.
-//  TODO(B-3): setelah peran ditata, pertimbangkan fail-closed untuk unknown.
+// ---- Cakupan data per peran (B-3) -----------------------------------
+//  "all"   : melihat seluruh sekolah
+//  "class" : hanya kelas binaan (daftar kelas dari kolom Classes di WebUsers)
+export type DataScope = "all" | "class";
+export const SCOPE: Record<Role, DataScope> = {
+  super_admin: "all",
+  admin: "all",
+  kepsek: "all",
+  wali_kelas: "class",
+};
+export function scopeForRole(role: Role | string | undefined): DataScope {
+  return SCOPE[normalizeRole(role)];
+}
+
 export function normalizeRole(raw: unknown): Role {
   const r = (raw ?? "").toString().trim().toLowerCase();
   if (r === "super_admin") return "super_admin";
@@ -106,7 +105,6 @@ export function normalizeRole(raw: unknown): Role {
   return "admin";
 }
 
-// ---- Mesin keputusan -------------------------------------------------
 export function can(role: Role | string | undefined, action: Action): boolean {
   return POLICY[normalizeRole(role)].includes(action);
 }
@@ -125,8 +123,6 @@ export function isReadOnly(role: Role | string | undefined): boolean {
 export function roleMeta(role: Role | string | undefined): RoleMeta {
   return ROLE_META[normalizeRole(role)];
 }
-
-// Melempar bila tidak berwenang — dipakai route handler agar konsisten.
 export function assertCan(role: Role | string | undefined, action: Action): void {
   if (!can(role, action)) {
     const e = new Error(`Akses ditolak: peran '${normalizeRole(role)}' tidak memiliki '${action}'.`);
@@ -135,14 +131,11 @@ export function assertCan(role: Role | string | undefined, action: Action): void
   }
 }
 
-// ---- Menu navigasi = data, dengan gerbang aksi ----------------------
-//  Sidebar & proteksi rute berdua membaca daftar ini. Tambah menu =
-//  tambah satu baris di sini, bukan menyebar di banyak file.
 export interface NavItem {
   href: string;
   label: string;
-  icon: string;                 // nama ikon lucide
-  gate: Action;                 // aksi minimal untuk MELIHAT menu ini
+  icon: string;
+  gate: Action;
 }
 export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/dashboard",            label: "Dashboard",          icon: "LayoutDashboard", gate: "view_dashboard" },
@@ -150,6 +143,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/dashboard/students",   label: "Siswa (CRUD)",       icon: "GraduationCap",   gate: "view_students" },
   { href: "/dashboard/attendance", label: "Kehadiran",          icon: "ClipboardList",   gate: "view_attendance" },
   { href: "/dashboard/statistics", label: "Statistik Siswa",    icon: "BarChart3",       gate: "view_statistics" },
+  { href: "/dashboard/reports",    label: "Laporan & Rekap",    icon: "FileText",        gate: "print_cards" },
   { href: "/dashboard/cards",      label: "Cetak Kartu Siswa",  icon: "CreditCard",      gate: "print_cards" },
   { href: "/dashboard/settings",   label: "Pengaturan Sekolah", icon: "Settings",        gate: "view_settings" },
 ];
@@ -157,13 +151,10 @@ export function visibleNav(role: Role | string | undefined): NavItem[] {
   return NAV_ITEMS.filter((i) => can(role, i.gate));
 }
 
-// ---- Opsi peran untuk dropdown (UI manajemen user) ------------------
-//  `availableNow` = boleh ditawarkan di dropdown SEKARANG.
-//  wali_kelas menunggu pemetaan guru->kelas (B-3); super_admin via seed.
 export interface RoleOption { value: Role; label: string; description: string; availableNow: boolean; }
 export const ROLE_OPTIONS: readonly RoleOption[] = [
   { value: "admin",      label: ROLE_META.admin.label,      description: ROLE_META.admin.description,      availableNow: true },
   { value: "kepsek",     label: ROLE_META.kepsek.label,     description: ROLE_META.kepsek.description,     availableNow: true },
-  { value: "wali_kelas", label: ROLE_META.wali_kelas.label, description: ROLE_META.wali_kelas.description, availableNow: false },
+  { value: "wali_kelas", label: ROLE_META.wali_kelas.label, description: ROLE_META.wali_kelas.description, availableNow: true },
   { value: "super_admin",label: ROLE_META.super_admin.label,description: ROLE_META.super_admin.description,availableNow: false },
 ];
