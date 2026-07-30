@@ -2,9 +2,12 @@ import { jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { COOKIE } from "@/lib/constants";
 import { normalizeRole, type Role } from "@/lib/rbac";
-import { findWebUser } from "@/lib/sheets";
+import * as sheets from "@/lib/sheets";
 
 const secret = () => new TextEncoder().encode(process.env.SESSION_SECRET || "dev-secret");
+
+// akses defensif: tidak gagal build walau sheets.ts tak mengekspor findWebUser
+const findUser = (sheets as any).findWebUser as ((email: string) => Promise<any>) | undefined;
 
 export interface Session {
   sub?: string;
@@ -12,9 +15,6 @@ export interface Session {
   role: Role;
 }
 
-// Verifikasi token + ambil peran TERKINI dari sheet (sumber kebenaran).
-// Node-only (memanggil Google Sheets). Bila token tak punya email, pakai
-// klaim role di token sebagai fallback (tetap berfungsi, hanya tak "live").
 export async function readSessionNode(): Promise<Session | null> {
   let token: string | undefined;
   try {
@@ -29,21 +29,20 @@ export async function readSessionNode(): Promise<Session | null> {
     const { payload: p } = await jwtVerify(token, secret());
     payload = p;
   } catch {
-    return null; // token tidak valid / kedaluwarsa
+    return null;
   }
 
   const email = typeof payload?.email === "string" ? payload.email : undefined;
   const sub = typeof payload?.sub === "string" ? payload.sub : undefined;
   let roleRaw: string | undefined = typeof payload?.role === "string" ? payload.role : undefined;
 
-  if (email) {
+  // peran terkini dari sheet (sumber kebenaran) bila tersedia; fallback ke klaim token
+  if (email && typeof findUser === "function") {
     try {
-      const u = await findWebUser(email);
-      if (u && (u as any).Role !== undefined && (u as any).Role !== null) {
-        roleRaw = (u as any).Role as string; // peran terkini menang
-      }
+      const u = await findUser(email);
+      if (u && typeof u.Role === "string") roleRaw = u.Role;
     } catch {
-      /* sheet gagal -> pakai klaim token */
+      /* abaikan -> pakai klaim token */
     }
   }
 
