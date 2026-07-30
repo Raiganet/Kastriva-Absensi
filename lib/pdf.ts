@@ -144,7 +144,7 @@ export function buildRekapPdf(input: RekapInput): jsPDF {
   doc.text(input.principalName || "____________________", signX, signY + 22);
 
   // ---- nomor halaman ----
-  const pages = doc.internal.getNumberOfPages();
+  const pages = doc.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i);
     doc.setFont("helvetica", "normal");
