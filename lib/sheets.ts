@@ -79,7 +79,7 @@ export async function findWebUser(email: string): Promise<WebUser | null> {
   await ensureSheet("WebUsers", WEBUSERS_HEADERS);
   const rows = toObjects(await values("WebUsers!A:F"));
   const hit = rows.find((r) => (r.Email || "").toLowerCase() === (email || "").toLowerCase());
-  return hit ? (hit as WebUser) : null;
+ return hit ? (hit as unknown as WebUser) : null;
 }
 
 export async function createWebUser(u: WebUser) {
