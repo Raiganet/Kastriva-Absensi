@@ -10,6 +10,8 @@ export interface SessionMeta {
 export interface SessionData {
   email?: string;
   role: string;
+  scope: "all" | "class";
+  classes: string[];
   meta: SessionMeta;
   nav: NavItem[];
 }
