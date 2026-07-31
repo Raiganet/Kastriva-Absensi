@@ -80,10 +80,22 @@ export default function DashboardPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [s, a, st] = await Promise.all([fetch("/api/students"), fetch("/api/attendance"), fetch("/api/settings")]);
-        setStudents(await s.json()); setAttendance(await a.json()); setSettings(await st.json());
-      } catch (e) { setErr(e instanceof Error ? e.message : "Gagal memuat data."); }
-      finally { setLoading(false); }
+        const [sRes, aRes, stRes] = await Promise.all([
+          fetch("/api/students"),
+          fetch("/api/attendance"),
+          fetch("/api/settings"),
+        ]);
+        const sData = await sRes.json();
+        const aData = await aRes.json();
+        const stData = await stRes.json();
+        setStudents(Array.isArray(sData) ? sData : []);
+        setAttendance(Array.isArray(aData) ? aData : []);
+        setSettings(stData && typeof stData === "object" && !Array.isArray(stData) ? stData : {});
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Gagal memuat data.");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
