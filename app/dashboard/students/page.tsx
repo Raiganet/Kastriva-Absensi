@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Edit, Trash2, X, Search, Loader2, GraduationCap, UserRound, Phone, MapPin, Hash, Info } from "lucide-react";
 import { useToast, useConfirm } from "@/components/ui";
 import { useSession } from "@/components/session";
+import { Can } from "@/components/can";
 
 interface StudentRec {
   Student_ID?: string; Student_Name?: string; Class_Name?: string;
@@ -99,7 +100,9 @@ export default function StudentsPage() {
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white mt-1">Kelola Siswa</h1>
           <p className="text-sm text-slate-400 mt-1">{students.length} siswa · {classOptions.length} kelas</p>
         </div>
-        <button onClick={openAdd} className="glass-button px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2"><Plus className="w-4 h-4" /> Tambah Siswa</button>
+       <Can action="manage_students">
+  <button onClick={openAdd} className="glass-button px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2"><Plus className="w-4 h-4" /> Tambah Siswa</button>
+</Can>
       </header>
 
       {waliMode && (
@@ -148,10 +151,12 @@ export default function StudentsPage() {
                   <td className="p-3 whitespace-nowrap">{s.Class_Name}</td>
                   <td className="p-3 hidden lg:table-cell">{s.Parent_Name || "—"}</td>
                   <td className="p-3 font-mono text-slate-400 hidden md:table-cell whitespace-nowrap">{s.Parent_Phone || "—"}</td>
-                  <td className="p-3 text-right whitespace-nowrap">
-                    <button onClick={() => openEdit(s)} className="text-amber-300 hover:text-amber-200 p-1.5 rounded-lg hover:bg-white/10 mr-1" aria-label="Edit"><Edit className="w-4 h-4" /></button>
-                    <button onClick={() => remove(s)} className="text-rose-300 hover:text-rose-200 p-1.5 rounded-lg hover:bg-rose-500/10" aria-label="Hapus"><Trash2 className="w-4 h-4" /></button>
-                  </td>
+                 <td className="p-3 text-right whitespace-nowrap">
+  <Can action="manage_students" fallback={<span className="text-slate-600 text-xs">—</span>}>
+    <button onClick={() => openEdit(s)} className="text-amber-300 hover:text-amber-200 p-1.5 rounded-lg hover:bg-white/10 mr-1" aria-label="Edit"><Edit className="w-4 h-4" /></button>
+    <button onClick={() => remove(s)} className="text-rose-300 hover:text-rose-200 p-1.5 rounded-lg hover:bg-rose-500/10" aria-label="Hapus"><Trash2 className="w-4 h-4" /></button>
+  </Can>
+</td>
                 </tr>
               ))}
               {filtered.length === 0 && (
