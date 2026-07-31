@@ -35,7 +35,6 @@ function toObjects(rows: string[][]): Record<string, string>[] {
   });
 }
 
-// pastikan sheet ada + header sesuai (menambah kolom kurang, mis. Classes)
 async function ensureSheet(name: string, headers: string[]) {
   const ss = await sheets().spreadsheets.get({ spreadsheetId: SID() });
   const exists = (ss.data.sheets || []).some((s: any) => s.properties?.title === name);
@@ -52,11 +51,10 @@ async function ensureSheet(name: string, headers: string[]) {
     });
     return;
   }
-  // tambah kolom header yang belum ada
   const cur = ((await values(`${name}!1:1`))[0] || []).map((h) => (h || "").toString().trim());
   const missing = headers.filter((h) => !cur.includes(h));
   for (const h of missing) {
-    const col = String.fromCharCode(65 + cur.length); // A,B,C,...
+    const col = String.fromCharCode(65 + cur.length);
     await sheets().spreadsheets.values.update({
       spreadsheetId: SID(),
       range: `${name}!${col}1`,
@@ -68,24 +66,25 @@ async function ensureSheet(name: string, headers: string[]) {
 }
 
 // ============================ WebUsers ============================
-const WEBUSERS_HEADERS = ["UserID", "Email", "PasswordHash", "Role", "CreatedAt", "Classes"];
+const WEBUSERS_HEADERS = ["UserID", "Email", "PasswordHash", "Role", "CreatedAt", "Classes", "School"];
 
 export interface WebUser {
   UserID: string; Email: string; PasswordHash?: string;
-  Role?: string; CreatedAt?: string; Classes?: string;
+  Role?: string; CreatedAt?: string; Classes?: string; School?: string;
 }
 
 export async function findWebUser(email: string): Promise<WebUser | null> {
   await ensureSheet("WebUsers", WEBUSERS_HEADERS);
-  const rows = toObjects(await values("WebUsers!A:F"));
+  const rows = toObjects(await values("WebUsers!A:G"));
   const hit = rows.find((r) => (r.Email || "").toLowerCase() === (email || "").toLowerCase());
- return hit ? (hit as unknown as WebUser) : null;
+  return hit ? (hit as unknown as WebUser) : null;
 }
 
 export async function createWebUser(u: WebUser) {
   await ensureSheet("WebUsers", WEBUSERS_HEADERS);
-  await append("WebUsers!A:F", [
-    u.UserID, u.Email, u.PasswordHash || "", u.Role || "user", u.CreatedAt || new Date().toISOString(), u.Classes || "",
+  await append("WebUsers!A:G", [
+    u.UserID, u.Email, u.PasswordHash || "", u.Role || "admin",
+    u.CreatedAt || new Date().toISOString(), u.Classes || "", u.School || "all",
   ]);
 }
 
@@ -125,7 +124,7 @@ export async function deleteOtpRecord(email: string) {
 }
 
 export async function updateWebUserPassword(email: string, passwordHash: string) {
-  const rows = await values("WebUsers!A:F");
+  const rows = await values("WebUsers!A:G");
   for (let i = 1; i < rows.length; i++) {
     if ((rows[i][1] || "").toString().toLowerCase() === email.toLowerCase()) {
       await sheets().spreadsheets.values.update({
