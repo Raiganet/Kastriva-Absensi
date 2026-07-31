@@ -30,11 +30,20 @@ export async function GET() {
         return o;
       });
 
-    // ROW-LEVEL: wali kelas hanya kelas binaan
-    if (session && session.scope === "class") {
-      const set = new Set(session.classes.map((c) => c.toLowerCase()));
-      data = data.filter((a) => set.has((a.Class_Name || "").toString().trim().toLowerCase()));
+    // FILTER PER SEKOLAH
+    if (session && session.scope === "school" && session.school !== "all") {
+      // Admin/Kepsek hanya lihat kehadiran di sekolahnya
+      data = data.filter((a) => (a.School || "").toString().trim() === session.school);
+    } else if (session && session.scope === "class") {
+      // Wali kelas hanya lihat kelas binaannya di sekolahnya
+      const classSet = new Set(session.classes.map((c) => c.toLowerCase()));
+      data = data.filter((a) => {
+        const schoolMatch = (a.School || "").toString().trim() === session.school;
+        const classMatch = classSet.has((a.Class_Name || "").toString().trim().toLowerCase());
+        return schoolMatch && classMatch;
+      });
     }
+    // Super Admin lihat semua
 
     return NextResponse.json(data);
   } catch (e) {
