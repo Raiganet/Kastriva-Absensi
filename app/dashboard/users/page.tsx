@@ -365,7 +365,13 @@ function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) 
       {open && (
         <div
           role="listbox"
-          className={"modal-panel absolute z-50 w-full glass-card !rounded-xl p-1.5 max-h-72 overflow-y-auto shadow-2xl " + (dropUp ? "bottom-full mb-2" : "top-full mt-2")}
+          className={"modal-panel absolute z-50 w-full !rounded-xl p-1.5 max-h-72 overflow-y-auto shadow-2xl " + (dropUp ? "bottom-full mb-2" : "top-full mt-2")}
+style={{
+  background: "rgba(15,23,42,0.94)",
+  backdropFilter: "blur(24px) saturate(180%)",
+  WebkitBackdropFilter: "blur(24px) saturate(180%)",
+  border: "1px solid rgba(255,255,255,0.12)",
+}}
         >
           {ROLE_OPTIONS.map((o) => {
             const m = ROLE_META[o.value];
