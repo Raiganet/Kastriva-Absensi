@@ -1,7 +1,7 @@
 import { jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { COOKIE } from "@/lib/constants";
-import { normalizeRole, scopeForRole, type Role, type DataScope } from "@/lib/rbac";
+import { normalizeRole, normalizeSchool, scopeForRole, type Role, type DataScope, type School } from "@/lib/rbac";
 import * as sheets from "@/lib/sheets";
 
 const secret = () => new TextEncoder().encode(process.env.SESSION_SECRET || "dev-secret");
@@ -12,10 +12,10 @@ export interface Session {
   email?: string;
   role: Role;
   scope: DataScope;
-  classes: string[]; // kelas binaan (bermakna bila scope === "class")
+  school: School; // TK/SD/SMP/SMA/all
+  classes: string[];
 }
 
-// parse "XI IPA 1, XI IPA 2 ; X IPS 1" -> ["XI IPA 1","XI IPA 2","X IPS 1"]
 export function parseClasses(raw: unknown): string[] {
   return (raw ?? "")
     .toString()
@@ -44,6 +44,7 @@ export async function readSessionNode(): Promise<Session | null> {
   const email = typeof payload?.email === "string" ? payload.email : undefined;
   const sub = typeof payload?.sub === "string" ? payload.sub : undefined;
   let roleRaw: string | undefined = typeof payload?.role === "string" ? payload.role : undefined;
+  let schoolRaw: unknown = undefined;
   let classesRaw: unknown = undefined;
 
   if (email && typeof findUser === "function") {
@@ -51,13 +52,22 @@ export async function readSessionNode(): Promise<Session | null> {
       const u = await findUser(email);
       if (u) {
         if (typeof u.Role === "string") roleRaw = u.Role;
+        schoolRaw = (u as any).School;
         classesRaw = (u as any).Classes;
       }
     } catch {
-      /* abaikan -> pakai klaim token */
+      /* abaikan */
     }
   }
 
   const role = normalizeRole(roleRaw);
-  return { sub, email, role, scope: scopeForRole(role), classes: parseClasses(classesRaw) };
+  const school = role === "super_admin" ? "all" : normalizeSchool(schoolRaw);
+  return {
+    sub,
+    email,
+    role,
+    scope: scopeForRole(role),
+    school,
+    classes: parseClasses(classesRaw),
+  };
 }
