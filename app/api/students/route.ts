@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import { readSessionNode } from "@/lib/session";
 
 const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "{}");
 const auth = new google.auth.GoogleAuth({
@@ -13,14 +14,12 @@ function sheets() {
   return google.sheets({ version: "v4", auth });
 }
 
-// AMBIL sheetId BERDASARKAN NAMA (bukan urutan tab) -> kunci perbaikan DELETE.
 async function sheetIdByName(name: string): Promise<number | null> {
   const res = await sheets().spreadsheets.get({ spreadsheetId: SID() });
   const found = (res.data.sheets || []).find((s: any) => s.properties?.title === name);
   return found?.properties?.sheetId ?? null;
 }
 
-// Baca header + baris mentah sekali pakai.
 async function readAll() {
   const res = await sheets().spreadsheets.values.get({ spreadsheetId: SID(), range: `${SHEET}!A:Z` });
   const rows = (res.data.values || []) as string[][];
@@ -34,19 +33,27 @@ function rowToObj(headers: string[], row: string[]): Record<string, string> {
   return o;
 }
 
-// Susun array nilai MENGIKUTI urutan header (tahan pergeseran/penambahan kolom).
 function buildRow(headers: string[], src: Record<string, string>): string[] {
   return headers.map((h) => (h ? src[h] ?? "" : ""));
 }
 
 export async function GET() {
   try {
+    const session = await readSessionNode();
     const { headers, rows } = await readAll();
     if (headers.length === 0) return NextResponse.json([]);
-    const data = rows
+
+    let data = rows
       .slice(1)
-      .filter((r) => r.some((c) => (c || "").toString().trim() !== "")) // buang baris kosong
+      .filter((r) => r.some((c) => (c || "").toString().trim() !== ""))
       .map((r) => rowToObj(headers, r));
+
+    // ROW-LEVEL: wali kelas hanya kelas binaan
+    if (session && session.scope === "class") {
+      const set = new Set(session.classes.map((c) => c.toLowerCase()));
+      data = data.filter((s) => set.has((s.Class_Name || "").toString().trim().toLowerCase()));
+    }
+
     return NextResponse.json(data);
   } catch (e) {
     console.error("[students] GET", e);
@@ -72,10 +79,9 @@ export async function POST(req: Request) {
     }
 
     if (foundIdx >= 0) {
-      // UPDATE: gabung nilai lama + baru. Field yang TIDAK dikirim form dipertahankan (foto tidak hilang saat edit).
       const merged: Record<string, string> = { ...rowToObj(headers, rows[foundIdx]) };
       Object.keys(body).forEach((k) => { if (body[k] !== undefined) merged[k] = body[k].toString(); });
-      merged.Student_ID = id; // NIS tidak boleh berubah
+      merged.Student_ID = id;
       await sheets().spreadsheets.values.update({
         spreadsheetId: SID(),
         range: `${SHEET}!A${foundIdx + 1}`,
@@ -85,7 +91,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, mode: "update" });
     }
 
-    // INSERT: susun sesuai header
     const src: Record<string, string> = {};
     Object.keys(body).forEach((k) => { src[k] = (body[k] ?? "").toString(); });
     await sheets().spreadsheets.values.append({
@@ -109,7 +114,7 @@ export async function DELETE(req: Request) {
 
     const { headers, rows } = await readAll();
     const col = headers.indexOf("Student_ID");
-    let targetRow1 = -1; // baris sheet, 1-based
+    let targetRow1 = -1;
     if (col >= 0) {
       for (let i = 1; i < rows.length; i++) {
         if ((rows[i][col] || "").toString().trim().toLowerCase() === id.toLowerCase()) { targetRow1 = i + 1; break; }
@@ -120,7 +125,7 @@ export async function DELETE(req: Request) {
     const sid = await sheetIdByName(SHEET);
     if (sid === null) return NextResponse.json({ error: "Sheet Students tidak ditemukan." }, { status: 500 });
 
-    const physical = targetRow1 - 1; // indeks baris fisik, 0-based (header = 0, tak tersentuh)
+    const physical = targetRow1 - 1;
     await sheets().spreadsheets.batchUpdate({
       spreadsheetId: SID(),
       requestBody: {
