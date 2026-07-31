@@ -158,3 +158,32 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
   { value: "wali_kelas", label: ROLE_META.wali_kelas.label, description: ROLE_META.wali_kelas.description, availableNow: true },
   { value: "super_admin",label: ROLE_META.super_admin.label,description: ROLE_META.super_admin.description,availableNow: false },
 ];
+// ---- Proteksi akuntabilitas (B-4) -----------------------------------
+export function canManageUser(
+  actorRole: Role | string | undefined,
+  targetRole: Role | string | undefined,
+  opts: { isSelf?: boolean; superAdminCount?: number; op?: "edit" | "delete" } = {}
+): { ok: boolean; reason?: string } {
+  const actor = normalizeRole(actorRole);
+  const target = normalizeRole(targetRole);
+  const op = opts.op || "edit";
+
+  if (actor === "kepsek" || actor === "wali_kelas") {
+    return { ok: false, reason: "Peran Anda tidak memiliki wewenang mengelola pengguna." };
+  }
+  if (op === "delete" && opts.isSelf) {
+    return { ok: false, reason: "Anda tidak dapat menghapus akun Anda sendiri." };
+  }
+  if (actor === "admin" && target === "super_admin") {
+    return { ok: false, reason: "Administrator tidak dapat mengubah atau menghapus Super Admin." };
+  }
+  if (target === "super_admin" && (opts.superAdminCount ?? 0) <= 1) {
+    return {
+      ok: false,
+      reason: op === "delete"
+        ? "Super Admin terakhir tidak dapat dihapus."
+        : "Peran Super Admin terakhir tidak dapat diubah.",
+    };
+  }
+  return { ok: true };
+}
