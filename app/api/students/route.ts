@@ -48,11 +48,20 @@ export async function GET() {
       .filter((r) => r.some((c) => (c || "").toString().trim() !== ""))
       .map((r) => rowToObj(headers, r));
 
-    // ROW-LEVEL: wali kelas hanya kelas binaan
-    if (session && session.scope === "class") {
-      const set = new Set(session.classes.map((c) => c.toLowerCase()));
-      data = data.filter((s) => set.has((s.Class_Name || "").toString().trim().toLowerCase()));
+    // FILTER PER SEKOLAH
+    if (session && session.scope === "school" && session.school !== "all") {
+      // Admin/Kepsek hanya lihat sekolahnya sendiri
+      data = data.filter((s) => (s.School || "").toString().trim() === session.school);
+    } else if (session && session.scope === "class") {
+      // Wali kelas hanya lihat kelas binaannya di sekolahnya
+      const classSet = new Set(session.classes.map((c) => c.toLowerCase()));
+      data = data.filter((s) => {
+        const schoolMatch = (s.School || "").toString().trim() === session.school;
+        const classMatch = classSet.has((s.Class_Name || "").toString().trim().toLowerCase());
+        return schoolMatch && classMatch;
+      });
     }
+    // Super Admin (scope === "all") lihat semua
 
     return NextResponse.json(data);
   } catch (e) {
@@ -63,6 +72,13 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const session = await readSessionNode();
+    
+    // Cek izin manage_students
+    if (!session || session.role === "kepsek" || session.role === "wali_kelas") {
+      return NextResponse.json({ error: "Anda tidak memiliki izin untuk mengubah data siswa." }, { status: 403 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as Record<string, any>;
     const id = (body.Student_ID || "").toString().trim();
     if (!id) return NextResponse.json({ error: "NIS wajib diisi." }, { status: 400 });
@@ -78,10 +94,22 @@ export async function POST(req: Request) {
       }
     }
 
+    // Pastikan siswa yang diedit/ditambah sesuai sekolah user (kecuali Super Admin)
+    const schoolCol = headers.indexOf("School");
+    const userSchool = session.school;
+    const userScope = session.scope;
+
     if (foundIdx >= 0) {
+      // UPDATE
       const merged: Record<string, string> = { ...rowToObj(headers, rows[foundIdx]) };
       Object.keys(body).forEach((k) => { if (body[k] !== undefined) merged[k] = body[k].toString(); });
       merged.Student_ID = id;
+      
+      // Admin tidak bisa ubah siswa dari sekolah lain
+      if (userScope === "school" && userSchool !== "all") {
+        merged.School = userSchool;
+      }
+      
       await sheets().spreadsheets.values.update({
         spreadsheetId: SID(),
         range: `${SHEET}!A${foundIdx + 1}`,
@@ -91,8 +119,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, mode: "update" });
     }
 
+    // INSERT
     const src: Record<string, string> = {};
     Object.keys(body).forEach((k) => { src[k] = (body[k] ?? "").toString(); });
+    
+    // Auto-set school untuk admin (kecuali super admin)
+    if (userScope === "school" && userSchool !== "all" && !src.School) {
+      src.School = userSchool;
+    }
+    
     await sheets().spreadsheets.values.append({
       spreadsheetId: SID(),
       range: `${SHEET}!A:Z`,
@@ -108,6 +143,13 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const session = await readSessionNode();
+    
+    // Cek izin manage_students
+    if (!session || session.role === "kepsek" || session.role === "wali_kelas") {
+      return NextResponse.json({ error: "Anda tidak memiliki izin untuk menghapus siswa." }, { status: 403 });
+    }
+
     const { searchParams } = new URL(req.url);
     const id = (searchParams.get("id") || "").trim();
     if (!id) return NextResponse.json({ error: "NIS diperlukan." }, { status: 400 });
@@ -121,6 +163,14 @@ export async function DELETE(req: Request) {
       }
     }
     if (targetRow1 < 0) return NextResponse.json({ error: "Siswa tidak ditemukan." }, { status: 404 });
+
+    // Cek apakah siswa yang akan dihapus milik sekolah user (kecuali super admin)
+    const schoolIdx = headers.indexOf("School");
+    const studentSchool = schoolIdx >= 0 ? rows[targetRow1 - 1][schoolIdx] : "";
+    
+    if (session.scope === "school" && session.school !== "all" && studentSchool !== session.school) {
+      return NextResponse.json({ error: "Anda tidak dapat menghapus siswa dari sekolah lain." }, { status: 403 });
+    }
 
     const sid = await sheetIdByName(SHEET);
     if (sid === null) return NextResponse.json({ error: "Sheet Students tidak ditemukan." }, { status: 500 });
