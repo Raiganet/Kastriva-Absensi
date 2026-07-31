@@ -1,26 +1,44 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import { readSessionNode } from "@/lib/session";
 
 const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "{}");
-const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
+const auth = new google.auth.GoogleAuth({
+  credentials: creds,
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+});
 const SID = () => process.env.SPREADSHEET_ID || "";
+
+function sheets() {
+  return google.sheets({ version: "v4", auth });
+}
 
 export async function GET() {
   try {
-    const sheets = google.sheets({ version: "v4", auth });
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Attendance!A:Z" });
-    const rows = res.data.values || [];
+    const session = await readSessionNode();
+    const res = await sheets().spreadsheets.values.get({ spreadsheetId: SID(), range: "Attendance!A:Z" });
+    const rows = (res.data.values || []) as string[][];
     if (rows.length < 2) return NextResponse.json([]);
-    
-    const headers = rows[0].map((h: string) => h.trim());
-    const data = rows.slice(1).map((row: string[]) => {
-      const obj: any = {};
-      headers.forEach((h: string, i: number) => { obj[h] = row[i] || ""; });
-      return obj;
-    });
-    
+
+    const headers = (rows[0] || []).map((h) => (h || "").toString().trim());
+    let data = rows
+      .slice(1)
+      .filter((r) => r.some((c) => (c || "").toString().trim() !== ""))
+      .map((r) => {
+        const o: Record<string, string> = {};
+        headers.forEach((h, i) => { if (h) o[h] = (r[i] || "").toString(); });
+        return o;
+      });
+
+    // ROW-LEVEL: wali kelas hanya kelas binaan
+    if (session && session.scope === "class") {
+      const set = new Set(session.classes.map((c) => c.toLowerCase()));
+      data = data.filter((a) => set.has((a.Class_Name || "").toString().trim().toLowerCase()));
+    }
+
     return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch attendance" }, { status: 500 });
+  } catch (e) {
+    console.error("[attendance] GET", e);
+    return NextResponse.json({ error: "Gagal memuat data kehadiran." }, { status: 500 });
   }
 }
