@@ -1,10 +1,12 @@
 // =====================================================================
-//  KASTRIVA · RBAC  —  satu sumber kebenaran kebijakan peran
-//  Murni TypeScript (tanpa import runtime) -> aman di Edge & Client.
+//  KASTRIVA · RBAC  —  multi-sekolah (TK/SD/SMP/SMA)
 // =====================================================================
 
 export type Role = "super_admin" | "admin" | "kepsek" | "wali_kelas";
 export const ROLES: readonly Role[] = ["super_admin", "admin", "kepsek", "wali_kelas"];
+
+export type School = "TK" | "SD" | "SMP" | "SMA" | "all";
+export const SCHOOLS: readonly School[] = ["TK", "SD", "SMP", "SMA"];
 
 export type Action =
   | "view_dashboard"
@@ -58,38 +60,36 @@ export interface RoleMeta {
 export const ROLE_META: Record<Role, RoleMeta> = {
   super_admin: {
     label: "Super Admin", short: "SA", icon: "ShieldCheck",
-    description: "Akses penuh lintas sekolah; tidak dapat diturunkan atau dihapus oleh admin.",
+    description: "Akses penuh lintas sekolah (TK/SD/SMP/SMA); kelola admin per sekolah.",
     tone: "bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-400/30",
     accent: "#d946ef", readOnly: false, level: 4,
   },
   admin: {
     label: "Administrator", short: "AD", icon: "Shield",
-    description: "Akses penuh: kelola siswa, pengguna, pengaturan, dan laporan.",
+    description: "Akses penuh untuk satu sekolah: kelola siswa, pengguna, pengaturan, dan laporan.",
     tone: "bg-indigo-500/15 text-indigo-300 border-indigo-400/30",
     accent: "#6366f1", readOnly: false, level: 3,
   },
   kepsek: {
     label: "Kepala Sekolah", short: "KS", icon: "Eye",
-    description: "Pantau seluruh kehadiran & laporan; tidak dapat mengubah data.",
+    description: "Pantau seluruh kehadiran & laporan sekolahnya; tidak dapat mengubah data.",
     tone: "bg-emerald-500/15 text-emerald-300 border-emerald-400/30",
     accent: "#10b981", readOnly: true, level: 2,
   },
   wali_kelas: {
     label: "Wali Kelas", short: "WK", icon: "Users",
-    description: "Melihat & memantau kelas binaannya saja (ruang lingkup ditegakkan server).",
+    description: "Melihat & memantau kelas binaannya saja di sekolahnya.",
     tone: "bg-sky-500/15 text-sky-300 border-sky-400/30",
     accent: "#0ea5e9", readOnly: true, level: 1,
   },
 };
 
-// ---- Cakupan data per peran (B-3) -----------------------------------
-//  "all"   : melihat seluruh sekolah
-//  "class" : hanya kelas binaan (daftar kelas dari kolom Classes di WebUsers)
-export type DataScope = "all" | "class";
+// ---- Cakupan data per peran -----------------------------------------
+export type DataScope = "all" | "school" | "class";
 export const SCOPE: Record<Role, DataScope> = {
   super_admin: "all",
-  admin: "all",
-  kepsek: "all",
+  admin: "school",
+  kepsek: "school",
   wali_kelas: "class",
 };
 export function scopeForRole(role: Role | string | undefined): DataScope {
@@ -103,6 +103,12 @@ export function normalizeRole(raw: unknown): Role {
   if (r === "kepsek") return "kepsek";
   if (r === "wali_kelas") return "wali_kelas";
   return "admin";
+}
+
+export function normalizeSchool(raw: unknown): School {
+  const s = (raw ?? "").toString().trim().toUpperCase();
+  if (s === "TK" || s === "SD" || s === "SMP" || s === "SMA") return s;
+  return "all";
 }
 
 export function can(role: Role | string | undefined, action: Action): boolean {
@@ -158,7 +164,8 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
   { value: "wali_kelas", label: ROLE_META.wali_kelas.label, description: ROLE_META.wali_kelas.description, availableNow: true },
   { value: "super_admin",label: ROLE_META.super_admin.label,description: ROLE_META.super_admin.description,availableNow: false },
 ];
-// ---- Proteksi akuntabilitas (B-4) -----------------------------------
+
+// ---- Proteksi akuntabilitas -----------------------------------------
 export function canManageUser(
   actorRole: Role | string | undefined,
   targetRole: Role | string | undefined,
