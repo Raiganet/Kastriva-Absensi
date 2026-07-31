@@ -2,7 +2,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { ShieldAlert } from "lucide-react";
-import type { NavItem } from "@/lib/rbac";
+import type { NavItem, School } from "@/lib/rbac";
 
 export interface SessionMeta {
   label: string; short: string; tone: string; accent: string; readOnly: boolean; description: string;
@@ -10,13 +10,14 @@ export interface SessionMeta {
 export interface SessionData {
   email?: string;
   role: string;
-  scope: "all" | "class";
+  scope: "all" | "school" | "class";
+  school: School;
+  schools: School[];
   classes: string[];
   meta: SessionMeta;
   nav: NavItem[];
 }
 
-// cache tingkat-modul: /api/me dipanggil sekali per muat halaman
 let cache: { p: Promise<SessionData | null> } | null = null;
 function fetchSession(): Promise<SessionData | null> {
   if (!cache) {
@@ -44,7 +45,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
 export function useSession() { return useContext(Ctx); }
 
-// Gate terpusat: blokir rute dashboard di luar wewenang (menutup ketik-URL-manual).
 export function DashboardGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { data, loading } = useSession();
@@ -52,7 +52,6 @@ export function DashboardGate({ children }: { children: ReactNode }) {
   if (loading) {
     return <div className="min-h-[60vh] flex items-center justify-center text-slate-300">Memuat sesi…</div>;
   }
-  // fail-open bila /api/me gagal (middleware tetap menjaga data & rute)
   if (!data) return <>{children}</>;
 
   const allowed =
