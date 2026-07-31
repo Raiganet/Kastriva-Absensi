@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readSessionNode } from "@/lib/session";
-import { ROLE_META, visibleNav } from "@/lib/rbac";
+import { ROLE_META, visibleNav, SCHOOLS } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -14,6 +14,8 @@ export async function GET() {
     email: s.email,
     role: s.role,
     scope: s.scope,
+    school: s.school,
+    schools: s.role === "super_admin" ? [...SCHOOLS, "all"] : [s.school],
     classes: s.classes,
     meta: {
       label: meta.label,
