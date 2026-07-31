@@ -3,7 +3,7 @@ import { google } from "googleapis";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { readSessionNode } from "@/lib/session";
-import { canManageUser, normalizeRole } from "@/lib/rbac";
+import { canManageUser, normalizeRole, normalizeSchool } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -20,7 +20,7 @@ function sheets() {
 }
 
 async function readUsers() {
-  const res = await sheets().spreadsheets.values.get({ spreadsheetId: SID(), range: `${SHEET}!A:F` });
+  const res = await sheets().spreadsheets.values.get({ spreadsheetId: SID(), range: `${SHEET}!A:G` });
   const rows = (res.data.values || []) as string[][];
   const headers = (rows[0] || []).map((h) => (h || "").toString().trim());
   return { headers, rows };
@@ -64,10 +64,14 @@ export async function POST(req: Request) {
     const password = (body.Password || "").toString();
     const role = normalizeRole(body.Role);
     const classes = (body.Classes || "").toString().trim();
+    const school = normalizeSchool(body.School);
     if (!email || !password) return NextResponse.json({ error: "Email dan Password wajib diisi." }, { status: 400 });
 
     if (role === "super_admin" && normalizeRole(session.role) !== "super_admin") {
       return NextResponse.json({ error: "Hanya Super Admin yang dapat membuat akun Super Admin." }, { status: 403 });
+    }
+    if (role !== "super_admin" && session.school !== "all" && school !== session.school) {
+      return NextResponse.json({ error: `Administrator hanya dapat membuat akun untuk sekolah ${session.school}.` }, { status: 403 });
     }
 
     const { headers, rows } = await readUsers();
@@ -79,9 +83,9 @@ export async function POST(req: Request) {
     const PasswordHash = await bcrypt.hash(password, 10);
     await sheets().spreadsheets.values.append({
       spreadsheetId: SID(),
-      range: `${SHEET}!A:F`,
+      range: `${SHEET}!A:G`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[randomUUID(), email, PasswordHash, role, new Date().toISOString(), classes]] },
+      requestBody: { values: [[randomUUID(), email, PasswordHash, role, new Date().toISOString(), classes, school]] },
     });
     return NextResponse.json({ success: true });
   } catch (e) {
@@ -106,6 +110,7 @@ export async function PUT(req: Request) {
     const pwIdx = headers.indexOf("PasswordHash");
     const createdIdx = headers.indexOf("CreatedAt");
     const classesIdx = headers.indexOf("Classes");
+    const schoolIdx = headers.indexOf("School");
 
     const targetRowIdx = rows.slice(1).findIndex((r) => (r[idIdx] || "").toString().trim() === targetId);
     if (targetRowIdx < 0) return NextResponse.json({ error: "Pengguna tidak ditemukan." }, { status: 404 });
@@ -128,13 +133,14 @@ export async function PUT(req: Request) {
     const newPassword = (body.Password || "").toString();
     const newHash = newPassword ? await bcrypt.hash(newPassword, 10) : (pwIdx >= 0 ? targetRow[pwIdx] : "");
     const newClasses = body.Classes !== undefined ? (body.Classes || "").toString().trim() : (classesIdx >= 0 ? (targetRow[classesIdx] || "") : "");
+    const newSchool = body.School !== undefined ? normalizeSchool(body.School) : (schoolIdx >= 0 ? normalizeSchool(targetRow[schoolIdx]) : "all");
 
     await sheets().spreadsheets.values.update({
       spreadsheetId: SID(),
       range: `${SHEET}!A${targetRowIdx + 2}`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[targetId, newEmail, newHash, newRole, createdIdx >= 0 ? (targetRow[createdIdx] || "") : "", newClasses]],
+        values: [[targetId, newEmail, newHash, newRole, createdIdx >= 0 ? (targetRow[createdIdx] || "") : "", newClasses, newSchool]],
       },
     });
     return NextResponse.json({ success: true });
