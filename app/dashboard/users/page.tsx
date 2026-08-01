@@ -9,11 +9,11 @@ import {
 import { useToast, useConfirm } from "@/components/ui";
 import { useSession } from "@/components/session";
 import {
-  can, isReadOnly, ROLE_META, ROLE_OPTIONS, normalizeRole,
+  can, isReadOnly, ROLE_META, ROLE_OPTIONS, normalizeRole, SCHOOLS,
 } from "@/lib/rbac";
 import type { Role, Action } from "@/lib/rbac";
 
-interface UserRec { UserID: string; Email: string; Role: string; CreatedAt: string; }
+interface UserRec { UserID: string; Email: string; Role: string; CreatedAt: string; School?: string; Classes?: string; }
 
 const ROLE_ICON: Record<string, typeof Shield> = {
   ShieldCheck, Shield, Eye, Users: UsersIcon,
@@ -45,11 +45,20 @@ export default function UsersPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<UserRec | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ Email: "", Password: "", Role: "admin", Classes: "" });
+  const [form, setForm] = useState({ Email: "", Password: "", Role: "admin", Classes: "", School: "all" });
   const [q, setQ] = useState("");
   const [fRole, setFRole] = useState("");
 
   const isWaliTarget = normalizeRole(form.Role) === "wali_kelas";
+  const isSuperAdminTarget = normalizeRole(form.Role) === "super_admin";
+  const actorRole = session?.role || "admin";
+  const actorSchool = session?.school || "all";
+
+  // Sekolah yang boleh dipilih actor
+  const availableSchools = useMemo(() => {
+    if (actorRole === "super_admin") return ["all", ...SCHOOLS];
+    return [actorSchool]; // admin hanya bisa pilih sekolahnya sendiri
+  }, [actorRole, actorSchool]);
 
   const load = async () => {
     try { setUsers(await (await fetch("/api/users")).json()); }
@@ -86,13 +95,29 @@ export default function UsersPage() {
     finally { setBusy(false); }
   }
 
-  function openAdd() { setEditing(null); setForm({ Email: "", Password: "", Role: "admin", Classes: "" }); setShowForm(true); }
-  function openEdit(u: UserRec) {
-    setEditing(u);
-    setForm({ Email: u.Email, Password: "", Role: normalizeRole(u.Role), Classes: (u as any).Classes || "" });
+  function openAdd() {
+    setEditing(null);
+    setForm({
+      Email: "",
+      Password: "",
+      Role: "admin",
+      Classes: "",
+      School: actorRole === "super_admin" ? "all" : actorSchool,
+    });
     setShowForm(true);
   }
-  function closeForm() { setShowForm(false); setEditing(null); setForm({ Email: "", Password: "", Role: "admin", Classes: "" }); }
+  function openEdit(u: UserRec) {
+    setEditing(u);
+    setForm({
+      Email: u.Email,
+      Password: "",
+      Role: normalizeRole(u.Role),
+      Classes: u.Classes || "",
+      School: u.School || "all",
+    });
+    setShowForm(true);
+  }
+  function closeForm() { setShowForm(false); setEditing(null); setForm({ Email: "", Password: "", Role: "admin", Classes: "", School: "all" }); }
 
   async function remove(u: UserRec) {
     const ok = await confirm({
@@ -129,7 +154,7 @@ export default function UsersPage() {
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
             <h2 className="text-sm font-bold text-white flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-indigo-300" /> Matriks Wewenang Per Peran</h2>
-            <p className="text-[11px] text-slate-500 mt-1">Apa yang boleh dilakukan tiap peran, lengkap dengan penjelasannya. Wali kelas dibatasi pada kelas binaannya (kolom “Kelas Binaan”).</p>
+            <p className="text-[11px] text-slate-500 mt-1">Apa yang boleh dilakukan tiap peran, lengkap dengan penjelasannya. Wali kelas dibatasi pada kelas binaannya (kolom "Kelas Binaan").</p>
           </div>
         </div>
 
@@ -223,6 +248,7 @@ export default function UsersPage() {
               <tr className="text-slate-400 uppercase text-[10px] sm:text-xs">
                 <th className="p-3">Email</th>
                 <th className="p-3">Peran</th>
+                <th className="p-3 hidden lg:table-cell">Sekolah</th>
                 <th className="p-3 hidden md:table-cell">Kelas Binaan</th>
                 <th className="p-3 hidden sm:table-cell">Dibuat</th>
                 <th className="p-3 text-right">Aksi</th>
@@ -232,7 +258,8 @@ export default function UsersPage() {
               {filtered.map((u) => {
                 const m = ROLE_META[normalizeRole(u.Role)];
                 const Icon = ROLE_ICON[m.icon] || Shield;
-                const cls = ((u as any).Classes || "").toString();
+                const cls = (u.Classes || "").toString();
+                const school = u.School || "all";
                 return (
                   <tr key={u.UserID}>
                     <td className="p-3"><span className="font-mono text-indigo-300 break-all">{u.Email}</span></td>
@@ -241,6 +268,11 @@ export default function UsersPage() {
                         <Icon className="w-3 h-3" /> {m.label}
                         {m.readOnly && <span className="opacity-70">· baca‑saja</span>}
                       </span>
+                    </td>
+                    <td className="p-3 hidden lg:table-cell">
+                      {school === "all"
+                        ? <span className="text-fuchsia-300 text-xs font-semibold">Semua Sekolah</span>
+                        : <span className="text-sky-300 text-xs font-semibold">{school}</span>}
                     </td>
                     <td className="p-3 hidden md:table-cell">
                       {normalizeRole(u.Role) === "wali_kelas"
@@ -256,7 +288,7 @@ export default function UsersPage() {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={5} className="p-10 text-center text-slate-500 text-sm">{users.length === 0 ? "Belum ada user terdaftar." : "Tidak ada user sesuai filter."}</td></tr>
+                <tr><td colSpan={6} className="p-10 text-center text-slate-500 text-sm">{users.length === 0 ? "Belum ada user terdaftar." : "Tidak ada user sesuai filter."}</td></tr>
               )}
             </tbody>
           </table>
@@ -288,10 +320,36 @@ export default function UsersPage() {
                   <span>{chosenMeta.description}{isReadOnly(form.Role) ? " Perubahan data tidak tersedia untuk peran ini." : ""}</span>
                 </div>
                 {editing && editing.Role === "user" && (
-                  <p className="text-[10px] text-slate-500 mt-1.5">Akun lama bertipe “user” ditampilkan sebagai Administrator (wewenang setara).</p>
+                  <p className="text-[10px] text-slate-500 mt-1.5">Akun lama bertipe "user" ditampilkan sebagai Administrator (wewenang setara).</p>
                 )}
               </div>
 
+              {/* FIELD SEKOLAH - muncul untuk semua peran KECUALI super_admin */}
+              {!isSuperAdminTarget && (
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1.5 font-medium">Sekolah <span className="text-rose-300">*</span></label>
+                  <div className="relative">
+                    <GraduationCap className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
+                    <select
+                      value={form.School}
+                      onChange={(e) => setForm({ ...form, School: e.target.value })}
+                      required
+                      className="w-full pl-10 pr-3 py-2.5 text-sm glass-input"
+                    >
+                      {availableSchools.map((s) => (
+                        <option key={s} value={s}>{s === "all" ? "Semua Sekolah" : s}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1.5">
+                    {actorRole === "super_admin"
+                      ? "Pilih sekolah yang akan dikelola user ini."
+                      : `Anda hanya dapat membuat akun untuk sekolah ${actorSchool}.`}
+                  </p>
+                </div>
+              )}
+
+              {/* FIELD KELAS BINAAN - hanya untuk wali kelas */}
               {isWaliTarget && (
                 <div>
                   <label className="block text-[11px] text-slate-400 mb-1.5 font-medium">Kelas Binaan <span className="text-rose-300">*</span></label>
@@ -366,12 +424,12 @@ function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) 
         <div
           role="listbox"
           className={"modal-panel absolute z-50 w-full !rounded-xl p-1.5 max-h-72 overflow-y-auto shadow-2xl " + (dropUp ? "bottom-full mb-2" : "top-full mt-2")}
-style={{
-  background: "rgba(15,23,42,0.94)",
-  backdropFilter: "blur(24px) saturate(180%)",
-  WebkitBackdropFilter: "blur(24px) saturate(180%)",
-  border: "1px solid rgba(255,255,255,0.12)",
-}}
+          style={{
+            background: "rgba(15,23,42,0.94)",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            border: "1px solid rgba(255,255,255,0.12)",
+          }}
         >
           {ROLE_OPTIONS.map((o) => {
             const m = ROLE_META[o.value];
