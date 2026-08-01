@@ -77,7 +77,7 @@ export default function DashboardPage() {
   const [q, setQ] = useState("");
   const [limit, setLimit] = useState(50);
 
-  useEffect(() => {
+useEffect(() => {
     (async () => {
       try {
         const [sRes, aRes, stRes] = await Promise.all([
@@ -88,13 +88,15 @@ export default function DashboardPage() {
         const sData = await sRes.json();
         const aData = await aRes.json();
         const stData = await stRes.json();
+        
+        // Defensive: pastikan selalu array
         setStudents(Array.isArray(sData) ? sData : []);
         setAttendance(Array.isArray(aData) ? aData : []);
         setSettings(stData && typeof stData === "object" && !Array.isArray(stData) ? stData : {});
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : "Gagal memuat data.");
-      } finally {
-        setLoading(false);
+      } catch (e) { 
+        setErr(e instanceof Error ? e.message : "Gagal memuat data."); 
+      } finally { 
+        setLoading(false); 
       }
     })();
   }, []);
